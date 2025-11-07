@@ -78,9 +78,11 @@ def preprocess_data(raw_data: Dict[str, Any], scaler) -> pd.DataFrame:
 def predict_eligibility(scaled_features: pd.DataFrame, model: Any, label_encoder: Any) -> str:
     """
     Uses the classifier model to predict the eligibility class and decodes the result.
+    
+    CRITICAL FIX: Converting to .values (NumPy array) avoids the XGBoost feature name mismatch error.
     """
-    # The model expects a DataFrame with the correct 16 feature names
-    prediction_encoded = model.predict(scaled_features)
+    # The model is now fed a raw NumPy array
+    prediction_encoded = model.predict(scaled_features.values)
     predicted_label = label_encoder.inverse_transform(prediction_encoded)
     return predicted_label[0]
 
@@ -88,9 +90,11 @@ def predict_eligibility(scaled_features: pd.DataFrame, model: Any, label_encoder
 def predict_max_emi(scaled_features: pd.DataFrame, model: Any) -> float:
     """
     Uses the regressor model to predict the continuous Max EMI amount.
+
+    CRITICAL FIX: Converting to .values (NumPy array) avoids the XGBoost feature name mismatch error.
     """
-    # The model expects a DataFrame with the correct 16 feature names
-    prediction_emi = model.predict(scaled_features)
+    # The model is now fed a raw NumPy array
+    prediction_emi = model.predict(scaled_features.values)
     return round(prediction_emi[0], 2)
 
 # --- Streamlit Application Layout ---
@@ -177,7 +181,7 @@ def main():
         # preprocess_data runs the 17-feature scaler and returns a 16-feature DataFrame for the models.
         scaled_data_for_model = preprocess_data(sample_input, scaler)
         
-        # 3. Make both predictions using the 16-feature DataFrame
+        # 3. Make both predictions using the 16-feature DataFrame (converted to NumPy array)
         with st.spinner('Calculating Eligibility and Max EMI...'):
             eligibility_prediction = predict_eligibility(scaled_data_for_model, classifier_model, label_encoder)
             max_emi_prediction = predict_max_emi(scaled_data_for_model, regressor_model)
