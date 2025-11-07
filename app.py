@@ -16,6 +16,7 @@ REGRESSOR_MODEL_PATH = 'xgboost_regressor_model.joblib'
 
 # --- Feature Definitions ---
 # 1. SCALER requires all 17 features to calculate the scaling transformation.
+# This list must match the column names and order used during the scaler's training.
 SCALER_FEATURE_NAMES = [
     'age', 'monthly_salary', 'years_of_employment', 'monthly_rent',
     'school_fees', 'college_fees', 'travel_expenses', 'groceries_utilities',
@@ -61,13 +62,14 @@ def preprocess_data(raw_data: Dict[str, Any], scaler) -> pd.DataFrame:
     df_scaler_input = pd.DataFrame([raw_data], columns=SCALER_FEATURE_NAMES)
     
     # 2. Scale the features (output is a 17-column numpy array)
+    # The scaler requires 'max_monthly_emi' to be present during transformation.
     scaled_features_array = scaler.transform(df_scaler_input)
 
     # 3. Convert back to a DataFrame with original names
     df_scaled = pd.DataFrame(scaled_features_array, columns=SCALER_FEATURE_NAMES)
 
     # 4. Filter the DataFrame to the 16 features the models were trained on.
-    #    This step ensures correct feature selection AND order.
+    #    This step ensures correct feature selection AND order for the final model input.
     df_model_input = df_scaled[MODEL_FEATURE_NAMES]
     
     return df_model_input
@@ -127,13 +129,14 @@ def main():
         with col3:
             emergency_fund = st.number_input("Emergency Fund ($)", min_value=0.0, value=10000.0, step=100.0)
             requested_amount = st.number_input("Loan Requested Amount ($)", min_value=0.0, value=50000.0, step=1000.0)
-            # max_monthly_emi is the column required by the SCALER, so we must include a placeholder value.
-            max_monthly_emi_placeholder = st.number_input(
+            
+            # This is the placeholder value required ONLY by the 17-feature StandardScaler.
+            emi_placeholder_value = st.number_input(
                 "Max Monthly EMI (Placeholder value)", 
                 min_value=0.0, value=1500.0, step=100.0, disabled=True
             )
             
-            # --- Calculated Features (Required for the model input structure) ---
+            # --- Calculated Features ---
             total_monthly_expenses = (monthly_rent + school_fees + college_fees + 
                                       travel_expenses + groceries_utilities + 
                                       other_monthly_expenses + current_emi_amount)
@@ -149,7 +152,7 @@ def main():
         submitted = st.form_submit_button("Get Prediction", type="primary")
 
     if submitted:
-        # 1. Gather all 17 inputs for the SCALER
+        # 1. Gather all 17 inputs for the SCALER (16 user inputs + 1 placeholder)
         sample_input = {
             'age': age,
             'monthly_salary': monthly_salary,
@@ -165,18 +168,17 @@ def main():
             'bank_balance': bank_balance,
             'emergency_fund': emergency_fund,
             'requested_amount': requested_amount,
-            'max_monthly_emi': max_monthly_emi_placeholder, # Placeholder for the scaler
+            'max_monthly_emi': emi_placeholder_value, # Pass placeholder for the 17-feature scaler
             'EMI_to_Salary_Ratio': emi_to_salary_ratio,
             'total_monthly_expenses': total_monthly_expenses
         }
 
         # 2. Preprocess the input data
-        # Returns a 16-feature DataFrame (df_model_input) with the correct column names and order.
+        # preprocess_data runs the 17-feature scaler and returns a 16-feature DataFrame for the models.
         scaled_data_for_model = preprocess_data(sample_input, scaler)
         
         # 3. Make both predictions using the 16-feature DataFrame
         with st.spinner('Calculating Eligibility and Max EMI...'):
-            # Models are fed the 16-feature DataFrame
             eligibility_prediction = predict_eligibility(scaled_data_for_model, classifier_model, label_encoder)
             max_emi_prediction = predict_max_emi(scaled_data_for_model, regressor_model)
 
