@@ -53,6 +53,7 @@ def preprocess_data(raw_data: Dict[str, Any], scaler) -> np.ndarray:
     df = pd.DataFrame([raw_data], columns=FEATURE_NAMES)
     
     # 2. Scale the features
+    # NOTE: This returns a 17-column array, as the scaler was trained on all 17 features.
     scaled_features = scaler.transform(df)
     return scaled_features
 
@@ -155,13 +156,19 @@ def main():
             'total_monthly_expenses': total_monthly_expenses
         }
 
-        # 2. Preprocess the input data
+        # 2. Preprocess the input data (returns 17 features)
         scaled_data = preprocess_data(sample_input, scaler)
+        
+        # --- FIX: Drop the 'max_monthly_emi' column before prediction ---
+        # The models were likely trained on 16 features (excluding the target 'max_monthly_emi'), 
+        # but the scaler requires 17 features as input. We remove the target column (index 14) here.
+        MAX_EMI_FEATURE_INDEX = FEATURE_NAMES.index('max_monthly_emi') 
+        scaled_data_for_model = np.delete(scaled_data, MAX_EMI_FEATURE_INDEX, axis=1)
 
-        # 3. Make both predictions
+        # 3. Make both predictions using the 16-feature array
         with st.spinner('Calculating Eligibility and Max EMI...'):
-            eligibility_prediction = predict_eligibility(scaled_data, classifier_model, label_encoder)
-            max_emi_prediction = predict_max_emi(scaled_data, regressor_model)
+            eligibility_prediction = predict_eligibility(scaled_data_for_model, classifier_model, label_encoder)
+            max_emi_prediction = predict_max_emi(scaled_data_for_model, regressor_model)
 
         # 4. Output the result in a nice box
         st.subheader("Prediction Results")
