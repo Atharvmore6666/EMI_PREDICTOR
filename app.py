@@ -79,10 +79,13 @@ def predict_eligibility(scaled_features: pd.DataFrame, model: Any, label_encoder
     """
     Uses the classifier model to predict the eligibility class and decodes the result.
     
-    CRITICAL FIX: Converting to .values (NumPy array) avoids the XGBoost feature name mismatch error.
+    CRITICAL FIX: Converting to .values (NumPy array) and reshaping to (1, N)
+    ensures the correct 2D format for XGBoost, bypassing feature name validation issues.
     """
-    # The model is now fed a raw NumPy array
-    prediction_encoded = model.predict(scaled_features.values)
+    # Extract NumPy array and explicitly reshape to (1, 16)
+    input_array = scaled_features.values.reshape(1, -1)
+    
+    prediction_encoded = model.predict(input_array)
     predicted_label = label_encoder.inverse_transform(prediction_encoded)
     return predicted_label[0]
 
@@ -91,10 +94,13 @@ def predict_max_emi(scaled_features: pd.DataFrame, model: Any) -> float:
     """
     Uses the regressor model to predict the continuous Max EMI amount.
 
-    CRITICAL FIX: Converting to .values (NumPy array) avoids the XGBoost feature name mismatch error.
+    CRITICAL FIX: Converting to .values (NumPy array) and reshaping to (1, N)
+    ensures the correct 2D format for XGBoost, bypassing feature name validation issues.
     """
-    # The model is now fed a raw NumPy array
-    prediction_emi = model.predict(scaled_features.values)
+    # Extract NumPy array and explicitly reshape to (1, 16)
+    input_array = scaled_features.values.reshape(1, -1)
+    
+    prediction_emi = model.predict(input_array)
     return round(prediction_emi[0], 2)
 
 # --- Streamlit Application Layout ---
@@ -181,7 +187,7 @@ def main():
         # preprocess_data runs the 17-feature scaler and returns a 16-feature DataFrame for the models.
         scaled_data_for_model = preprocess_data(sample_input, scaler)
         
-        # 3. Make both predictions using the 16-feature DataFrame (converted to NumPy array)
+        # 3. Make both predictions using the 16-feature DataFrame (converted and reshaped)
         with st.spinner('Calculating Eligibility and Max EMI...'):
             eligibility_prediction = predict_eligibility(scaled_data_for_model, classifier_model, label_encoder)
             max_emi_prediction = predict_max_emi(scaled_data_for_model, regressor_model)
