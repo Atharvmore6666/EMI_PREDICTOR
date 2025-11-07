@@ -15,13 +15,19 @@ CLASSIFIER_MODEL_PATH = 'tuned_xgboost_model.joblib'
 REGRESSOR_MODEL_PATH = 'xgboost_regressor_model.joblib'
 
 # Expected features based on the scaler's training data.
-FEATURE_NAMES = [
+# This list MUST match the columns used to train the SCALER (17 features).
+SCALER_FEATURE_NAMES = [
     'age', 'monthly_salary', 'years_of_employment', 'monthly_rent',
     'school_fees', 'college_fees', 'travel_expenses', 'groceries_utilities',
     'other_monthly_expenses', 'current_emi_amount', 'credit_score',
     'bank_balance', 'emergency_fund', 'requested_amount', 'max_monthly_emi',
     'EMI_to_Salary_Ratio', 'total_monthly_expenses'
 ]
+
+# This list MUST match the columns used to train the XGBOOST MODELS (16 features, excluding the target).
+TARGET_FEATURE = 'max_monthly_emi'
+PREDICTION_FEATURE_NAMES = [f for f in SCALER_FEATURE_NAMES if f != TARGET_FEATURE]
+
 
 # --- Model Loading (Cached for performance) ---
 @st.cache_resource
@@ -45,17 +51,26 @@ def load_components():
     return None, None, None, None # Should not be reached if st.stop() works
 
 # --- Preprocessing Function ---
-def preprocess_data(raw_data: Dict[str, Any], scaler) -> np.ndarray:
+def preprocess_data(raw_data: Dict[str, Any], scaler) -> Tuple[np.ndarray, np.ndarray]:
     """
     Converts raw input dictionary into a scaled numpy array for the models.
+    Returns: (scaled_data_for_scaler_transform, scaled_data_for_model_predict)
     """
-    # 1. Create a Pandas DataFrame to ensure correct structure and order
-    df = pd.DataFrame([raw_data], columns=FEATURE_NAMES)
+    # 1. Create a Pandas DataFrame with all 17 SCALER_FEATURE_NAMES to ensure correct structure
+    df_scaler_input = pd.DataFrame([raw_data], columns=SCALER_FEATURE_NAMES)
     
-    # 2. Scale the features
-    # NOTE: This returns a 17-column array, as the scaler was trained on all 17 features.
-    scaled_features = scaler.transform(df)
-    return scaled_features
+    # 2. Scale the features (results in 17 columns)
+    scaled_features_all = scaler.transform(df_scaler_input)
+
+    # 3. Create a DataFrame from the scaled array with the original feature names
+    df_scaled = pd.DataFrame(scaled_features_all, columns=SCALER_FEATURE_NAMES)
+
+    # 4. Filter the DataFrame to include only the 16 PREDICTION_FEATURE_NAMES 
+    #    This ensures the features are in the exact order the model expects.
+    df_model_input = df_scaled[PREDICTION_FEATURE_NAMES]
+    
+    # 5. Return the final 16-feature numpy array for model prediction
+    return df_model_input.values
 
 # --- Prediction Function for Classification (Eligibility) ---
 def predict_eligibility(scaled_features: np.ndarray, model: Any, label_encoder: Any) -> str:
@@ -110,16 +125,14 @@ def main():
         with col3:
             emergency_fund = st.number_input("Emergency Fund ($)", min_value=0.0, value=10000.0, step=100.0)
             requested_amount = st.number_input("Loan Requested Amount ($)", min_value=0.0, value=50000.0, step=1000.0)
-            # max_monthly_emi is often an input feature but also the regression target.
-            # We'll use a placeholder value that will be overridden by the prediction,
-            # but is required for the scaler's input structure.
+            # max_monthly_emi is the column we need to pass a placeholder for, 
+            # as it is required by the scaler but not by the final model.
             max_monthly_emi_placeholder = st.number_input(
-                "Max Monthly EMI (Placeholder, not used for prediction)", 
+                "Max Monthly EMI (Placeholder value)", 
                 min_value=0.0, value=1500.0, step=100.0, disabled=True
             )
             
             # --- Calculated Features (Required for the model input structure) ---
-            # Calculate total expenses for the final two features
             total_monthly_expenses = (monthly_rent + school_fees + college_fees + 
                                       travel_expenses + groceries_utilities + 
                                       other_monthly_expenses + current_emi_amount)
@@ -135,7 +148,7 @@ def main():
         submitted = st.form_submit_button("Get Prediction", type="primary")
 
     if submitted:
-        # 1. Gather all inputs into the required dictionary format
+        # 1. Gather all 17 inputs for the SCALER
         sample_input = {
             'age': age,
             'monthly_salary': monthly_salary,
@@ -151,22 +164,19 @@ def main():
             'bank_balance': bank_balance,
             'emergency_fund': emergency_fund,
             'requested_amount': requested_amount,
-            'max_monthly_emi': max_monthly_emi_placeholder, # Use placeholder value
+            'max_monthly_emi': max_monthly_emi_placeholder, # Placeholder value for the scaler
             'EMI_to_Salary_Ratio': emi_to_salary_ratio,
             'total_monthly_expenses': total_monthly_expenses
         }
 
-        # 2. Preprocess the input data (returns 17 features)
-        scaled_data = preprocess_data(sample_input, scaler)
+        # 2. Preprocess the input data
+        # The preprocess_data function now handles the scaling and removal of the target column,
+        # ensuring the final output (scaled_data_for_model) is a 16-feature array in the correct order.
+        scaled_data_for_model = preprocess_data(sample_input, scaler)
         
-        # --- FIX: Drop the 'max_monthly_emi' column before prediction ---
-        # The models were likely trained on 16 features (excluding the target 'max_monthly_emi'), 
-        # but the scaler requires 17 features as input. We remove the target column (index 14) here.
-        MAX_EMI_FEATURE_INDEX = FEATURE_NAMES.index('max_monthly_emi') 
-        scaled_data_for_model = np.delete(scaled_data, MAX_EMI_FEATURE_INDEX, axis=1)
-
         # 3. Make both predictions using the 16-feature array
         with st.spinner('Calculating Eligibility and Max EMI...'):
+            # Both models are now fed the 16-feature array
             eligibility_prediction = predict_eligibility(scaled_data_for_model, classifier_model, label_encoder)
             max_emi_prediction = predict_max_emi(scaled_data_for_model, regressor_model)
 
